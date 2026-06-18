@@ -1,0 +1,2 @@
+# Keeps the archive/ directory in git while empty.
+# Sent emails are saved here as dated markdown: YYYY-MM-DD-am.md / YYYY-MM-DD-pm.md

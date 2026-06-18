@@ -10,12 +10,12 @@ A phase is "done" only when it runs end-to-end and the output has been reviewed 
 
 Goal: an empty but runnable skeleton with config and secrets wired.
 
-- [ ] Initialize the repo and the structure from `CLAUDE.md` ("Target repo structure").
-- [ ] Set up a Python virtual environment and a `requirements.txt` with the stack from `CLAUDE.md`.
-- [ ] Create `.gitignore` — ignore `.env` and any local cruft. Decide whether `data/` (ledger, lessons, archive) is committed (it should be, so the track record persists in the repo).
-- [ ] Create the `config` file with: send times (7:45 AM / 5:00 PM ET), watchlist (`META`, `GOOGL`), the 8 sectors, and the source list.
-- [ ] Create `.env` with placeholders: FRED API key, Finnhub key, Gmail address + app password.
-- [ ] Confirm Claude Code is authenticated on the Max subscription and **no `ANTHROPIC_API_KEY` is set** in the runtime environment.
+- [x] Initialize the repo and the structure from `CLAUDE.md` ("Target repo structure"). _(config is `config.toml`, read via stdlib `tomllib`.)_
+- [x] Set up a Python virtual environment (`.venv/`) and a `requirements.txt` with the stack from `CLAUDE.md`. _(All deps installed & imports verified on Python 3.13.)_
+- [x] Create `.gitignore` — ignore `.env` and any local cruft. Decide whether `data/` (ledger, lessons, archive) is committed. _(DECISION: real ledger/lessons/archive are **gitignored for privacy** — only blank `*.example.*` templates + `archive/.gitkeep` are committed so structure stays visible. `.venv`/`.env` ignored. See CLAUDE.md "Privacy".)_
+- [x] Create the `config` file with: send times (7:45 AM / 5:00 PM ET), watchlist (`META`, `GOOGL`), the 8 sectors, and the source list. _(`config.toml`. AP/Reuters feed URLs are marked placeholders to confirm in Phase 1.)_
+- [x] Create `.env` with placeholders: FRED API key, Finnhub key, Gmail address + app password. _(Plus committed `.env.example` template.)_
+- [x] Confirm Claude Code is authenticated on the Max subscription and **no `ANTHROPIC_API_KEY` is set** in the runtime environment. _(`claude` CLI on PATH; `ANTHROPIC_API_KEY` confirmed unset.)_
 
 ## Phase 1 — MVP: a hand-run AM Briefing
 

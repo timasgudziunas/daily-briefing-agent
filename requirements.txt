@@ -1,0 +1,14 @@
+# Daily Briefing Agent — Python dependencies.
+# Install into a virtual environment:  pip install -r requirements.txt
+#
+# The LLM step runs via the Claude Code CLI (headless, under the Max
+# subscription) — it is NOT a pip dependency and must stay off the Anthropic API.
+
+feedparser              # RSS fetching
+trafilatura             # article text / key-point extraction
+fredapi                 # FRED economic data
+yfinance                # market prices (primary)
+finnhub-python          # market prices (backup)
+pandas-market-calendars # NYSE trading-day / holiday gate
+yagmail                 # Gmail HTML send (over smtplib + app password)
+python-dotenv           # load secrets from .env

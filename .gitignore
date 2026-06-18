@@ -1,0 +1,28 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Private data — the personal track record stays LOCAL, never pushed to GitHub.
+# Only the blank templates (data/*.example.*) and data/archive/.gitkeep are
+# committed, so the repo structure stays visible without exposing real
+# predictions, lessons, or sent emails. Copy a template to its real name to
+# start locally (see README).
+data/ledger.json
+data/lessons.md
+data/archive/*
+!data/archive/.gitkeep

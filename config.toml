@@ -1,0 +1,64 @@
+# config.toml — single source of truth for watchlist, sectors, sources, send times.
+#
+# This file is plain data, read by the code (Python 3.11+ `tomllib`). Edit it to
+# change behavior; no code changes required. Adding a ticker is a one-line edit
+# to `watchlist.tickers` below.
+
+[schedule]
+# All times are Eastern. Schedule against the IANA zone (NOT a fixed UTC offset)
+# so the AM/PM slots stay correct across the EDT/EST switch. Trading days only.
+timezone = "America/New_York"
+am_briefing = "07:45"   # AM Briefing — before market open
+pm_debrief  = "17:00"   # PM Debrief — evening recap
+
+[watchlist]
+# One-line edit to add/remove a stock or ETF. Kept minimal on purpose.
+tickers = ["META", "GOOGL"]
+
+[sectors]
+# Prioritization signal, not a hard filter. Order does not imply weight.
+focus = [
+  "technology",
+  "healthcare",
+  "consumer_discretionary",
+  "energy",
+  "industrials",
+  "utilities",
+  "materials",
+  "financials",
+]
+
+[predictions]
+# Locked horizon ladder. The model picks the appropriate horizon(s) per item.
+horizons = ["same-day", "1-week", "1-month", "1-quarter", "6-months", "1-year"]
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+# Native RSS where reliable. AP/Reuters URLs are placeholders to confirm in
+# Phase 1 (fetch.py): AP's native feed and a Reuters feed-generator URL
+# (rss.app / newsloth, since Reuters' native RSS is unreliable).
+
+[sources.wires]
+ap_news = ["PLACEHOLDER_AP_NEWS_RSS"]            # confirm AP native RSS in Phase 1
+reuters = ["PLACEHOLDER_REUTERS_FEEDGEN_RSS"]    # via rss.app / newsloth
+
+[sources.tech]
+# Real breakthroughs only — AI hype/product churn filtered at curation.
+ars_technica  = "https://feeds.arstechnica.com/arstechnica/index"
+ieee_spectrum = "https://spectrum.ieee.org/feeds/feed.rss"
+
+[sources.economic]
+# FRED series pulled via fredapi (key in .env). Release-calendar timing
+# (Fed/BLS/Census) handled in fetch.py. Serious US metrics only.
+fred_series = [
+  "CPIAUCSL",  # CPI (inflation)
+  "UNRATE",    # unemployment rate
+  "GDPC1",     # real GDP
+  "FEDFUNDS",  # fed funds rate
+  "DGS10",     # 10-year Treasury yield
+  "PCEPI",     # PCE price index
+]
+
+[market]
+# Price lookups: yfinance primary, Finnhub fallback (key in .env).
+primary_provider  = "yfinance"
+fallback_provider = "finnhub"

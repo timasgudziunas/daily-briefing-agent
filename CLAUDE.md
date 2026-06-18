@@ -58,13 +58,26 @@ src/
   email.py          # HTML email build + Gmail send
   ledger.py         # read/write ledger + lessons
 data/
-  ledger.json
-  lessons.md
-  archive/YYYY-MM-DD-am.md  (and -pm.md)
+  ledger.example.json      # committed blank template
+  lessons.example.md       # committed blank template
+  ledger.json              # gitignored: real predictions (private)
+  lessons.md               # gitignored: real lessons (private)
+  archive/.gitkeep         # committed (keeps the folder)
+  archive/YYYY-MM-DD-am.md (and -pm.md)  # gitignored: full sent emails (private)
 .env                # gitignored: API keys, Gmail app password
 ```
 
-Keep the watchlist, sectors, sources, and send times in `config`, never hardcoded in code.
+**Privacy (decided in Phase 0):** the ledger, lessons, and archive hold the
+owner's personal track record and full emails — their real files are **gitignored**
+and stay local. Only blank `*.example.*` templates and `archive/.gitkeep` are
+committed, so the repo structure is visible on GitHub without exposing data.
+Code must create a real file from its template on first run if missing. The
+"Open in Claude" button does NOT depend on the archive (each email carries its
+digest in the link). State is still the source of truth — just stored locally,
+not pushed.
+
+Config lives in `config.toml` (read via the stdlib `tomllib`, no extra dep).
+Keep the watchlist, sectors, sources, and send times in `config.toml`, never hardcoded in code.
 
 ## Content & format rules
 
