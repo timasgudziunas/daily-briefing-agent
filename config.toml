@@ -33,13 +33,17 @@ focus = [
 horizons = ["same-day", "1-week", "1-month", "1-quarter", "6-months", "1-year"]
 
 # ── Sources ──────────────────────────────────────────────────────────────────
-# Native RSS where reliable. AP/Reuters URLs are placeholders to confirm in
-# Phase 1 (fetch.py): AP's native feed and a Reuters feed-generator URL
-# (rss.app / newsloth, since Reuters' native RSS is unreliable).
+# Native RSS where reliable. AP's native RSS is dead and Reuters' is unreliable,
+# so both wires come through Google News RSS (free, no account, no expiry). The
+# `site:` filter scopes each feed to one wire; `when:2d` keeps it recency-first
+# (fetch.py also caps + drops stale items). Google News links are encoded
+# redirects — extract.py resolves them to the real article URL for finalists.
+# To widen/narrow a wire, edit the query string (e.g. add `politics` or change
+# the `when:` window); to add a feed, append another URL to the list.
 
 [sources.wires]
-ap_news = ["PLACEHOLDER_AP_NEWS_RSS"]            # confirm AP native RSS in Phase 1
-reuters = ["PLACEHOLDER_REUTERS_FEEDGEN_RSS"]    # via rss.app / newsloth
+ap_news = ["https://news.google.com/rss/search?q=when:2d%20site:apnews.com&hl=en-US&gl=US&ceid=US:en"]
+reuters = ["https://news.google.com/rss/search?q=when:2d%20site:reuters.com&hl=en-US&gl=US&ceid=US:en"]
 
 [sources.tech]
 # Real breakthroughs only — AI hype/product churn filtered at curation.

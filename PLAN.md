@@ -21,15 +21,15 @@ Goal: an empty but runnable skeleton with config and secrets wired.
 
 Goal: run one command and get a real, well-formatted AM Briefing in the inbox. No predictions or scheduling yet.
 
-- [ ] `calendar.py` — trading-day / holiday gate (`pandas-market-calendars`). Entry points exit early on non-trading days.
-- [ ] `fetch.py` — pull from sources: AP (native RSS), Reuters (via feed generator), Ars Technica + IEEE Spectrum (native RSS), and FRED API for economic data. Respect **recency-first** (prefer the latest).
-- [ ] `extract.py` — pull headline + 2–3 key points from each article via `trafilatura`. Never store/emit full article text.
-- [ ] `llm.py` — the single swappable LLM interface (Claude Code headless under Max).
-- [ ] Curation prompt — select ~3 items across the 3 pillars; enforce no-filler, no-AI-slop, recency-first; produce the per-item "why it matters" line. Politics worldwide-but-mostly-US; economy = serious US metrics only.
-- [ ] `email.py` — build the HTML email: top TL;DR summary, pillar sections, per-item format, subject `AM Briefing | M/D/YY`, and the "Open in Claude" button (prefilled with the day's digest, defaulting to the most recent email).
-- [ ] Gmail send via `yagmail`/`smtplib` + app password.
-- [ ] `am_briefing.py` entry point wiring the above together; write the sent email to `archive/`.
-- [ ] Run end-to-end by hand; iterate with the owner on output quality before moving on.
+- [x] `calendar.py` — trading-day / holiday gate (`pandas-market-calendars`). Entry points exit early on non-trading days. _(NYSE calendar; `is_trading_day()` + `today_eastern()`. AM entry gates on it unless `--force`.)_
+- [x] `fetch.py` — pull from sources: AP (native RSS), Reuters (via feed generator), Ars Technica + IEEE Spectrum (native RSS), and FRED API for economic data. Respect **recency-first** (prefer the latest). _(feedparser + fredapi. Recency: stale items dropped, newest-first, per-feed cap. **Placeholder feeds are skipped + dead source/missing key degrades gracefully.** AP+Reuters now come via **Google News RSS** (free, no account/expiry; `site:` filter per wire) instead of rss.app — its encoded redirect links are resolved to the real article URL in `extract.resolve_link()` (finalists only, stdlib, no new dep). AP extracts cleanly; Reuters blocks extraction (401) so it stays a SELECT-pool candidate with an AP-preference tie-breaker for finalists.)_
+- [x] `extract.py` — pull headline + 2–3 key points from each article via `trafilatura`. Never store/emit full article text. _(extract.py returns a clean ~2k-char excerpt for the LLM; the curation pass distills the 2–3 key points. Full text never persisted; extraction runs on finalists only.)_
+- [x] `llm.py` — the single swappable LLM interface (Claude Code headless under Max). _(`complete()`/`complete_json()` shell to `claude -p` via stdin; ANTHROPIC_API_KEY stripped from the child env as defense-in-depth.)_
+- [x] Curation prompt — select ~3 items across the 3 pillars; enforce no-filler, no-AI-slop, recency-first; produce the per-item "why it matters" line. Politics worldwide-but-mostly-US; economy = serious US metrics only. _(`curate.py`, two passes: SELECT then COMPOSE. Small structural addition beyond CLAUDE.md's module list — keeps am_briefing thin; LLM transport still lives only in llm.py.)_
+- [x] `email.py` — build the HTML email: top TL;DR summary, pillar sections, per-item format, subject `AM Briefing | M/D/YY`, and the "Open in Claude" button (prefilled with the day's digest, defaulting to the most recent email). _(Inline-styled responsive HTML; `claude.ai/new?q=` prefill carries the digest.)_
+- [x] Gmail send via `yagmail`/`smtplib` + app password. _(`send_email()` via yagmail; defaults to self. **Code done; real send pending owner's Gmail App Password in `.env`.**)_
+- [x] `am_briefing.py` entry point wiring the above together; write the sent email to `archive/`. _(Gate → fetch → curate → build → send → archive. Flags: `--no-send` (local HTML preview), `--force`, `--to`. Archive → gitignored `data/archive/YYYY-MM-DD-am.md`.)_
+- [x] Run end-to-end by hand; iterate with the owner on output quality before moving on. _(Ran end-to-end in `--no-send` mode 6/18 — clean output. **6/19: full real send succeeded** — `AM Briefing | 6/19/26` delivered to inbox (3 lean items, one per pillar; resolved AP link, FRED economy, sharp why-it-matters lines). Trading-day gate correctly flagged Juneteenth as a holiday (used `--force` to test). Owner reviewed → Phase 1 done. AP+Reuters wires (Google News), `FRED_API_KEY`, and Gmail App Password are all in — real inbox send confirmed 6/19.)_
 
 ## Phase 2 — The PM Debrief + prediction/feedback loop
 

@@ -10,5 +10,8 @@ fredapi                 # FRED economic data
 yfinance                # market prices (primary)
 finnhub-python          # market prices (backup)
 pandas-market-calendars # NYSE trading-day / holiday gate
-yagmail                 # Gmail HTML send (over smtplib + app password)
 python-dotenv           # load secrets from .env
+
+# Gmail HTML send uses the stdlib (smtplib + email.mime) + a Gmail app password,
+# so no extra dependency is needed. (We dropped yagmail: its HTML auto-detection
+# mis-tagged the body as plain text, so we build the MIME message explicitly.)
