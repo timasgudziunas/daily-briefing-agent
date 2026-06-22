@@ -35,6 +35,17 @@ TARGET_ITEMS = 3  # ~3 in the AM (CLAUDE.md leanness rule)
 
 
 @dataclass
+class Call:
+    """A prediction as shown in the email: a short, plain, falsifiable claim with
+    its horizon and a calibrated confidence. The full gradable record (rationale,
+    ticker/metric, etc.) lives in the ledger; this is just the display view."""
+
+    horizon: str
+    call: str
+    confidence: int | None = None
+
+
+@dataclass
 class Item:
     """One finished briefing item, ready to render."""
 
@@ -44,6 +55,9 @@ class Item:
     source: str
     key_points: list[str]
     why_it_matters: str
+    # Phase 2: one or two Calls (predictions) attached by the AM predict step;
+    # the gradable records themselves live in the ledger.
+    predictions: list[Call] = field(default_factory=list)
 
 
 @dataclass

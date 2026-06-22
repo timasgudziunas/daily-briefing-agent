@@ -29,6 +29,9 @@ UTC = _dt.timezone.utc
 # aligned with the "recency first" principle.
 MAX_PER_FEED = 12
 MAX_AGE_DAYS = 4  # wire/tech stories older than this are dropped before curation
+# The PM "Something New" learning feeds are general-interest and often evergreen,
+# so they get a much more relaxed recency window than the news wires.
+LEARNING_MAX_AGE_DAYS = 30
 
 
 @dataclass
@@ -139,6 +142,12 @@ def fetch_feed(url: str, source_label: str, category: str) -> list[Article]:
 # Human labels for the feed keys in config.toml.
 _WIRE_LABELS = {"ap_news": "AP News", "reuters": "Reuters"}
 _TECH_LABELS = {"ars_technica": "Ars Technica", "ieee_spectrum": "IEEE Spectrum"}
+_LEARNING_LABELS = {
+    "atlas_obscura": "Atlas Obscura",
+    "aeon": "Aeon",
+    "quanta": "Quanta Magazine",
+    "smithsonian": "Smithsonian",
+}
 
 
 def _iter_feed_urls(section: dict) -> list[tuple[str, str]]:
@@ -173,6 +182,28 @@ def fetch_articles() -> list[Article]:
     fresh = [a for a in articles if (a.age_days is None or a.age_days <= MAX_AGE_DAYS)]
     fresh.sort(key=sort_key, reverse=True)
     log.info("Total candidate articles after recency filter: %d", len(fresh))
+    return fresh
+
+
+def fetch_learning() -> list[Article]:
+    """Fetch the general-interest feeds for the PM 'Something New' learning piece.
+
+    Kept separate from `fetch_all` so the AM run (which never uses these) stays
+    fast — the PM run calls this on its own. Recency-filtered with the relaxed
+    LEARNING_MAX_AGE_DAYS window, newest-first, since evergreen stories are fine.
+    """
+    learning_cfg = config.sources().get("learning", {})
+    articles: list[Article] = []
+    for url, key in _iter_feed_urls(learning_cfg):
+        label = _LEARNING_LABELS.get(key, key.replace("_", " ").title())
+        articles += fetch_feed(url, label, "learning")
+
+    def sort_key(a: Article):
+        return a.published or _dt.datetime.min.replace(tzinfo=UTC)
+
+    fresh = [a for a in articles if (a.age_days is None or a.age_days <= LEARNING_MAX_AGE_DAYS)]
+    fresh.sort(key=sort_key, reverse=True)
+    log.info("Learning candidates after recency filter: %d", len(fresh))
     return fresh
 
 

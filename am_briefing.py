@@ -27,6 +27,8 @@ from src import calendar as trading_calendar
 from src import curate as curation
 from src import email as mailer
 from src import fetch
+from src import ledger
+from src import predict
 
 log = logging.getLogger("am_briefing")
 
@@ -64,6 +66,12 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     if not briefing.items:
         log.error("Curation produced no items; not sending an empty briefing.")
         return 1
+
+    # Phase 2: read lessons first, then predict + append to the ledger. The
+    # prediction step is best-effort — a failure here still sends the briefing.
+    log.info("Predicting…")
+    lessons = ledger.read_lessons()
+    predict.make_predictions(briefing, lessons_text=lessons, today=today, run="am")
 
     subject, html = mailer.build_html(briefing)
     _archive(briefing, subject)

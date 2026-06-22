@@ -1,3 +1,23 @@
+> ⚠️ **TEMP — Phase 2 live-validation run · REMOVE this whole block after use.**
+>
+> Run these on the **next live trading day** from a normal terminal (NOT inside a
+> Claude Code session — nested `claude -p` calls hang there):
+>
+> ```
+> .venv/Scripts/python.exe am_briefing.py --force     # morning
+> .venv/Scripts/python.exe pm_debrief.py --force      # that evening
+> ```
+>
+> Goal: confirm (a) the AM makes a **same-day** call, (b) the PM **grades** it
+> against the real close, and (c) the PM's market-wrap + "Something New" LLM
+> sections come back populated (not empty).
+>
+> **After that run is done, REMOVE all of the following:**
+> 1. This blockquote.
+> 2. The same-day nudge in `src/predict.py` — the `_SAMEDAY_NUDGE` /
+>    `_SAMEDAY_NUDGE_UNTIL` block and its use in `_predict_prompt`. _(It also
+>    self-expires after 2026-06-26 as a backstop, but delete the dead code.)_
+
 # PLAN.md
 
 The ordered build plan for this project. **Work top to bottom.** Don't jump ahead — each phase assumes the previous one works. Check items off (`- [x]`) as you complete them and keep this file current. `CLAUDE.md` holds the rules and constraints that govern *how* each item is built; this file is the *what* and the *order*. If something here is ambiguous or an "open item," ask before assuming.
@@ -35,13 +55,13 @@ Goal: run one command and get a real, well-formatted AM Briefing in the inbox. N
 
 Goal: the loop that makes it improve. AM predicts, PM grades and learns. Still hand-run.
 
-- [ ] `ledger.py` — read/write the ledger (JSON) and the lessons file. Define the prediction schema: date, item, call, horizon, status, outcome, why.
-- [ ] Prediction step in the AM run — for each item, pick the right horizon(s) from the locked ladder (same-day, 1wk, 1mo, 1Q, 6mo, 1yr) and append to the ledger. The AM run **reads the lessons file before predicting.**
-- [ ] `market.py` — outcome data: `yfinance` for prices (with `finnhub-python` fallback), FRED for data outcomes.
-- [ ] `grade.py` — strict, data-grounded grading. Load this morning's predictions plus any long-horizon ones now due; mark right/wrong/partial with why, anchored to real prices/data.
-- [ ] Lessons distillation — when the PM finds misses, write concise, generalizable rules into the lessons file; keep it curated and small.
-- [ ] `pm_debrief.py` — PM email: open with the prediction grades, then the market wrap (what moved + why), ~2 items, and the learning piece (anything, guaranteed-novel). Subject `PM Debrief | M/D/YY`. Archive it.
-- [ ] Run AM → PM end-to-end by hand across a few days; confirm the loop reads/writes state correctly.
+- [x] `ledger.py` — read/write the ledger (JSON) and the lessons file. Define the prediction schema: date, item, call, horizon, status, outcome, why. _(Full `Prediction` dataclass — id/created/run/item/pillar/call/horizon/due/ticker/metric/status/outcome/why/graded. Atomic save, `due_predictions()`, `update_predictions()`, horizon→due-date math (month-clamped, e.g. Jan 31 +1mo → Feb 28). Create-from-template bootstrap on first use; round-trip verified.)_
+- [x] Prediction step in the AM run — for each item, pick the right horizon(s) from the locked ladder (same-day, 1wk, 1mo, 1Q, 6mo, 1yr) and append to the ledger. The AM run **reads the lessons file before predicting.** _(`predict.py`: one LLM pass, **1–2 predictions per item (model's call)**, anchored to a `ticker` or FRED `metric` where possible. AM reads lessons → predicts → appends; best-effort (a predict failure still sends the briefing). **Owner feedback (built):** calls are now SHORT/plain (claim only; reasoning moved to a stored `rationale`), the step does **live web research** before each call (WebSearch/WebFetch via the `llm` interface — Phase 5 pulled forward for predictions only, with a tool-free fallback) and **reads the track record** of past graded calls (`ledger.track_record`) + lessons to calibrate, and every call carries a **meaningful numeric `confidence` (0–100)** + `confidence_rationale`. Email "The call" block shows `horizon` then the claim with a color-graded confidence chip.)_
+- [x] `market.py` — outcome data: `yfinance` for prices (with `finnhub-python` fallback), FRED for data outcomes. _(`close_on`/`latest_close`/`move_since`/`daily_move` (yfinance primary, Finnhub fallback for current quote) + `fred_latest`. Every accessor degrades to None on failure. Live-verified against META/SPY/QQQ + DGS10.)_
+- [x] `grade.py` — strict, data-grounded grading. Load this morning's predictions plus any long-horizon ones now due; mark right/wrong/partial with why, anchored to real prices/data. _(`grade_due` gathers real outcome data per prediction (price move / FRED reading), then one strict LLM pass returns right/wrong/partial + outcome + why; vagueness counts as a miss. LLM failure leaves predictions open rather than fabricating verdicts. Verified on real META (right) and a contrived QQQ miss (wrong).)_
+- [x] Lessons distillation — when the PM finds misses, write concise, generalizable rules into the lessons file; keep it curated and small. _(`grade.distill_lessons`: only misses/partials trigger it; the model merges/dedupes/cuts to ~8 bullets and returns the full file, which overwrites verbatim. Parser tolerates a stray fence/preamble before the `# Lessons` heading.)_
+- [x] `pm_debrief.py` — PM email: open with the prediction grades, then the market wrap (what moved + why), ~2 items, and the learning piece (anything, guaranteed-novel). Subject `PM Debrief | M/D/YY`. Archive it. _(Gate → grade due → distill lessons → **fresh PM fetch** → compose → build → send/preview → archive `-pm.md`. Same flags as AM: `--no-send`/`--force`/`--to`. `debrief.py` reuses the AM curator for ~2 items; **wrap+TL;DR and the learning piece are two separate small LLM calls** — split after a single combined JSON call truncated. Email: shared page shell, verdict-pill scorecard, market-wrap section, "Something New" block, PM "Discuss in Claude" prefill.)_
+- [ ] Run AM → PM end-to-end by hand across a few days; confirm the loop reads/writes state correctly. _(Validated end-to-end 6/19 in `--no-send --force` (Juneteenth holiday): AM produced 3 lean items + 5 sharp anchored predictions appended to the ledger; PM graded a same-day call strictly against real prices, produced a clean scorecard + curated wrap + a novel learning piece ("The Triffin Dilemma"). Test ledger/lessons writes were then restored to blank. **Still TODO: the owner's real multi-day hand-run on live trading days to confirm the loop over time + review output quality.**)_
 
 ## Phase 3 — Automation: hands-off scheduling
 
@@ -65,7 +85,7 @@ Goal: trustworthy day after day.
 
 Goal: turn the single LLM call into an agent that finds what matters.
 
-- [ ] Give the LLM real tools through the swappable interface — web search first.
+- [~] Give the LLM real tools through the swappable interface — web search first. _(Partially done early: the **AM prediction step** already researches via WebSearch/WebFetch through `llm.complete(..., allowed_tools=...)`. Remaining Phase 5 work: extend agentic tool use to curation/grading and let it iterate/chase threads, not just predict.)_
 - [ ] Let it decide what to chase and iterate (pull threads, verify, dig) rather than only summarizing what it's handed.
 - [ ] Keep everything above intact — this is an upgrade to the curation/prediction brain, not a rewrite.
 

@@ -73,3 +73,13 @@ def sources() -> dict[str, Any]:
 
 def schedule() -> dict[str, Any]:
     return load_config().get("schedule", {})
+
+
+def market_summary() -> list[dict[str, Any]]:
+    """Instruments shown in the PM Market Summary (symbol/label/group rows)."""
+    return load_config().get("market", {}).get("summary", [])
+
+
+def market_yield_series() -> str | None:
+    """FRED series id used for the Market Summary's yield row (or None)."""
+    return load_config().get("market", {}).get("yield_series")

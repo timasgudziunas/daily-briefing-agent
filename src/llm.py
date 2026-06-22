@@ -52,13 +52,24 @@ def complete(
     prompt: str,
     system: str | None = None,
     timeout: int = DEFAULT_TIMEOUT,
+    allowed_tools: list[str] | None = None,
 ) -> str:
     """Run one headless completion and return the model's text output.
 
     `prompt` goes on stdin; `system` (optional) is appended to the system prompt.
+
+    `allowed_tools` pre-approves Claude Code tools for this call (e.g.
+    ["WebSearch", "WebFetch"]), turning the completion into a small research
+    agent that can gather live context before answering. Only the listed tools
+    are permitted — anything else stays denied, so this is safe to enable for the
+    research-backed prediction step. When None (the default) it's a plain,
+    tool-free completion. Research calls run longer, so pass a larger `timeout`.
+
     Raises LLMError on non-zero exit, timeout, or empty output.
     """
     cmd = [_claude_path(), "-p", "--output-format", "text"]
+    if allowed_tools:
+        cmd += ["--allowedTools", ",".join(allowed_tools)]
     if system:
         cmd += ["--append-system-prompt", system]
 
@@ -115,13 +126,16 @@ def complete_json(
     prompt: str,
     system: str | None = None,
     timeout: int = DEFAULT_TIMEOUT,
+    allowed_tools: list[str] | None = None,
 ):
     """Run a completion expected to return JSON, and parse it.
 
     Prepends a strict-JSON instruction to any caller-supplied system prompt.
+    `allowed_tools` is forwarded to `complete` (see there) for research-backed
+    JSON calls.
     """
     sys_prompt = _JSON_SYSTEM if not system else f"{system}\n\n{_JSON_SYSTEM}"
-    raw = complete(prompt, system=sys_prompt, timeout=timeout)
+    raw = complete(prompt, system=sys_prompt, timeout=timeout, allowed_tools=allowed_tools)
     return _extract_json(raw)
 
 

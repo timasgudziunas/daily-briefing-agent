@@ -50,6 +50,17 @@ reuters = ["https://news.google.com/rss/search?q=when:2d%20site:reuters.com&hl=e
 ars_technica  = "https://feeds.arstechnica.com/arstechnica/index"
 ieee_spectrum = "https://spectrum.ieee.org/feeds/feed.rss"
 
+[sources.learning]
+# General-interest feeds for the PM "Something New" nightly learning piece —
+# genuinely fascinating, NON-markets topics (science, history, engineering,
+# psychology, geography, nature, space). One story is picked + distilled each
+# night so the reader always learns something new. Recency is relaxed here
+# (evergreen is fine), unlike the news wires. One-line edit to add/remove a feed.
+atlas_obscura = "https://www.atlasobscura.com/feeds/latest"
+aeon          = "https://aeon.co/feed.rss"
+quanta        = "https://api.quantamagazine.org/feed/"
+smithsonian   = "https://www.smithsonianmag.com/rss/latest_articles/"
+
 [sources.economic]
 # FRED series pulled via fredapi (key in .env). Release-calendar timing
 # (Fed/BLS/Census) handled in fetch.py. Serious US metrics only.
@@ -66,3 +77,35 @@ fred_series = [
 # Price lookups: yfinance primary, Finnhub fallback (key in .env).
 primary_provider  = "yfinance"
 fallback_provider = "finnhub"
+# 10-year Treasury yield for the PM Market Summary comes from FRED (a clean rate
+# read); shown as a level + daily change in basis points.
+yield_series = "DGS10"
+
+# Instruments shown in the PM Market Summary, in this order. Your watchlist
+# tickers (see [watchlist] above) are added automatically under "Watchlist".
+#   symbol = yfinance ticker · label = display name · group = section heading.
+# One-line edit to add/remove a row (e.g. add silver as ["SI=F", "Silver"]).
+[[market.summary]]
+symbol = "^GSPC"
+label  = "S&P 500"
+group  = "Indices"
+[[market.summary]]
+symbol = "^IXIC"
+label  = "Nasdaq"
+group  = "Indices"
+[[market.summary]]
+symbol = "^DJI"
+label  = "Dow"
+group  = "Indices"
+[[market.summary]]
+symbol = "GC=F"
+label  = "Gold"
+group  = "Commodities"
+[[market.summary]]
+symbol = "CL=F"
+label  = "Crude oil"
+group  = "Commodities"
+[[market.summary]]
+symbol = "BTC-USD"
+label  = "Bitcoin"
+group  = "Crypto"
