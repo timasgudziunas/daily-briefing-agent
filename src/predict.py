@@ -35,22 +35,6 @@ MAX_PER_ITEM = 2
 RESEARCH_TOOLS = ["WebSearch", "WebFetch"]
 RESEARCH_TIMEOUT = 600  # seconds; web research over several items is slow
 
-# ─── TEMP — Phase 2 validation nudge · REMOVE after the test run ────────────────
-# WHY: forces the next live trading day to make at least one same-day call so the
-# AM→PM grading path is exercised end-to-end on a real prediction (PLAN.md line
-# 44). DELETE this block AND its use in `_predict_prompt` once that run is graded.
-# Backstop: self-expires after the date below (inert thereafter), so it can never
-# silently linger even if the manual removal is forgotten.
-_SAMEDAY_NUDGE_UNTIL = _dt.date(2026, 6, 26)
-_SAMEDAY_NUDGE = (
-    "TEMP ONE-TIME VALIDATION DIRECTIVE: for THIS run, include at least one "
-    "'same-day' horizon call (resolves by today's market close) on whichever item "
-    "most plausibly supports an intraday move. Keep it genuine and gradable — do "
-    "NOT force a nonsensical call; choose the item where a same-day read is most "
-    "defensible. All your other calls are unaffected by this directive."
-)
-# ───────────────────────────────────────────────────────────────────────────────
-
 
 def _track_record_block(record: list[ledger.Prediction]) -> str:
     if not record:
@@ -88,9 +72,6 @@ def _predict_prompt(
         "research, not a guess.",
         "",
     ]
-    # TEMP — Phase 2 validation nudge (self-expiring; see _SAMEDAY_NUDGE above).
-    if today <= _SAMEDAY_NUDGE_UNTIL:
-        lines += [_SAMEDAY_NUDGE, ""]
     lines += [
         "BEFORE you commit each call, DO THE WORK:",
         "1. RESEARCH with web search — verify the facts, pull the most current "
