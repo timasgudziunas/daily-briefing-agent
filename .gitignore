@@ -26,3 +26,4 @@ data/ledger.json
 data/lessons.md
 data/archive/*
 !data/archive/.gitkeep
+data/logs/

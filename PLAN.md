@@ -47,10 +47,10 @@ Goal: the loop that makes it improve. AM predicts, PM grades and learns. Still h
 
 Goal: it runs itself on trading days without you touching it.
 
-- [ ] Schedule both runs via cron (Mac/Linux) or Task Scheduler (Windows) at 7:45 AM / 5:00 PM in the `America/New_York` timezone (not a fixed offset). Enable wake-to-run.
-- [ ] Confirm the trading-day gate prevents weekend/holiday sends.
-- [ ] Run logging — record each run's outcome so you can tell it fired.
-- [ ] Basic error handling — a dead source or an API hiccup degrades gracefully instead of killing the whole email.
+- [x] Schedule both runs via cron (Mac/Linux) or Task Scheduler (Windows) at 7:45 AM / 5:00 PM in the `America/New_York` timezone (not a fixed offset). Enable wake-to-run. _(`setup_tasks.ps1` — run once as Administrator. Registers `\DailyBriefing\AM Briefing` (07:45) and `\DailyBriefing\PM Debrief` (17:00) Mon–Fri with `WakeToRun` + `StartWhenAvailable`. Trigger times are in machine local time — script assumes the PC is set to Eastern; Python code uses `ZoneInfo("America/New_York")` internally so the trading-day gate is timezone-correct regardless. Power plan must have "Allow wake timers" enabled — instructions printed by the script.)_
+- [x] Confirm the trading-day gate prevents weekend/holiday sends. _(Already in `calendar.py` (`pandas-market-calendars` NYSE); tested on Juneteenth 6/19. Every non-trading exit is now recorded in `data/logs/am.log` / `pm.log` so it's auditable. Task Scheduler fires Mon–Fri; Python handles NYSE holidays.)_
+- [x] Run logging — record each run's outcome so you can tell it fired. _(Rotating file handler added to both entry points: `data/logs/am.log` and `data/logs/pm.log`, 500 KB × 5 backups, `%(asctime)s %(levelname)s %(name)s %(message)s`. Every run is bracketed by `=== AM/PM Briefing starting ===` / `=== completed successfully ===` (or FAILED with full traceback). `data/logs/` is gitignored.)_
+- [x] Basic error handling — a dead source or an API hiccup degrades gracefully instead of killing the whole email. _(Source/API failures were already graceful throughout (`fetch.py`, `market.py`, `grade.py`, `predict.py`, `debrief.py` all degrade to [] / None on failure). Remaining gap fixed: archive write is now non-fatal — email still sends if `data/archive/` write fails (logged as WARNING). In `--no-send` mode, the HTML preview is written before the archive attempt.)_
 
 ## Phase 4 — Reliability & polish
 

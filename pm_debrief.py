@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import sys
 import webbrowser
 from pathlib import Path
@@ -36,6 +37,26 @@ log = logging.getLogger("pm_debrief")
 ROOT = Path(__file__).resolve().parent
 ARCHIVE_DIR = ROOT / "data" / "archive"
 PREVIEW_PATH = ARCHIVE_DIR / "_preview-pm.html"  # gitignored, for --no-send
+LOG_DIR = ROOT / "data" / "logs"
+
+
+def _setup_logging() -> None:
+    """Console + rotating file logging so every scheduled run is auditable."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+
+    file_h = logging.handlers.RotatingFileHandler(
+        LOG_DIR / "pm.log", maxBytes=500_000, backupCount=5, encoding="utf-8"
+    )
+    file_h.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(console)
+    root.addHandler(file_h)
 
 
 def _archive(deb: debriefing.Debrief, subject: str) -> Path:
@@ -96,12 +117,15 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
         return 1
 
     subject, html = mailer.build_pm_html(deb)
-    _archive(deb, subject)
 
     if no_send:
         PREVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
         PREVIEW_PATH.write_text(html, encoding="utf-8")
         log.info("--no-send: wrote preview to %s", PREVIEW_PATH)
+        try:
+            _archive(deb, subject)
+        except Exception:
+            log.warning("Archive write failed; preview was written but no archive record.")
         try:
             webbrowser.open(PREVIEW_PATH.as_uri())
         except Exception:
@@ -112,6 +136,12 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     log.info("Sending…")
     mailer.send_email(subject, html, text=mailer.render_debrief_text(deb), to=to)
     print(f"Sent: {subject}")
+
+    try:
+        _archive(deb, subject)
+    except Exception:
+        log.warning("Archive write failed — email was sent but no archive record created.")
+
     return 0
 
 
@@ -124,11 +154,17 @@ def main() -> None:
     parser.add_argument("--to", default=None, help="Override recipient email.")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _setup_logging()
+    log.info("=== PM Debrief starting ===")
     try:
-        sys.exit(run(no_send=args.no_send, force=args.force, to=args.to))
+        code = run(no_send=args.no_send, force=args.force, to=args.to)
+        if code == 0:
+            log.info("=== PM Debrief completed successfully ===")
+        else:
+            log.warning("=== PM Debrief completed with exit code %d ===", code)
+        sys.exit(code)
     except Exception:
-        log.exception("PM Debrief run failed.")
+        log.exception("=== PM Debrief run FAILED ===")
         sys.exit(1)
 
 

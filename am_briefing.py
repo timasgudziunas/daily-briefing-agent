@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import logging
+import logging.handlers
 import sys
 import webbrowser
 from pathlib import Path
@@ -35,6 +36,26 @@ log = logging.getLogger("am_briefing")
 ROOT = Path(__file__).resolve().parent
 ARCHIVE_DIR = ROOT / "data" / "archive"
 PREVIEW_PATH = ROOT / "data" / "archive" / "_preview-am.html"  # gitignored, for --no-send
+LOG_DIR = ROOT / "data" / "logs"
+
+
+def _setup_logging() -> None:
+    """Console + rotating file logging so every scheduled run is auditable."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+
+    console = logging.StreamHandler()
+    console.setFormatter(fmt)
+
+    file_h = logging.handlers.RotatingFileHandler(
+        LOG_DIR / "am.log", maxBytes=500_000, backupCount=5, encoding="utf-8"
+    )
+    file_h.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.addHandler(console)
+    root.addHandler(file_h)
 
 
 def _archive(briefing: curation.Briefing, subject: str) -> Path:
@@ -74,12 +95,15 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     predict.make_predictions(briefing, lessons_text=lessons, today=today, run="am")
 
     subject, html = mailer.build_html(briefing)
-    _archive(briefing, subject)
 
     if no_send:
         PREVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
         PREVIEW_PATH.write_text(html, encoding="utf-8")
         log.info("--no-send: wrote preview to %s", PREVIEW_PATH)
+        try:
+            _archive(briefing, subject)
+        except Exception:
+            log.warning("Archive write failed; preview was written but no archive record.")
         try:
             webbrowser.open(PREVIEW_PATH.as_uri())
         except Exception:
@@ -90,6 +114,12 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     log.info("Sending…")
     mailer.send_email(subject, html, text=mailer.render_digest_text(briefing), to=to)
     print(f"Sent: {subject}")
+
+    try:
+        _archive(briefing, subject)
+    except Exception:
+        log.warning("Archive write failed — email was sent but no archive record created.")
+
     return 0
 
 
@@ -102,11 +132,17 @@ def main() -> None:
     parser.add_argument("--to", default=None, help="Override recipient email.")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    _setup_logging()
+    log.info("=== AM Briefing starting ===")
     try:
-        sys.exit(run(no_send=args.no_send, force=args.force, to=args.to))
+        code = run(no_send=args.no_send, force=args.force, to=args.to)
+        if code == 0:
+            log.info("=== AM Briefing completed successfully ===")
+        else:
+            log.warning("=== AM Briefing completed with exit code %d ===", code)
+        sys.exit(code)
     except Exception:
-        log.exception("AM Briefing run failed.")
+        log.exception("=== AM Briefing run FAILED ===")
         sys.exit(1)
 
 
