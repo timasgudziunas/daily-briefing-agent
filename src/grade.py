@@ -16,8 +16,8 @@ from __future__ import annotations
 import datetime as _dt
 import logging
 
-from . import llm, market
-from .ledger import Prediction
+from . import config, llm, market
+from .ledger import LessonEntry, Prediction
 
 log = logging.getLogger(__name__)
 
@@ -128,57 +128,165 @@ def grade_due(
     return graded
 
 
-# ── Lessons distillation ──────────────────────────────────────────────────────
+# ── Lessons update (two-file architecture) ────────────────────────────────────
+#
+# Single LLM call when there are new misses: distill new lessons + confirm existing
+# ones + select the ~8 for the active view — all in one pass.
+#
+# The master log (lessons_log.json) is append-only: entries are added or updated
+# (outcome_count / last_confirmed) but NEVER deleted. Evicting a lesson from the
+# active view (lessons_active.md) does NOT remove it from the log.
 
-def distill_lessons(graded: list[Prediction], current_lessons: str) -> str | None:
-    """Propose + merge concise rules from graded misses. Returns new text or None.
+def _update_lessons_prompt(
+    misses: list[Prediction],
+    log_entries: list[LessonEntry],
+    today: _dt.date,
+) -> str:
+    sectors = ", ".join(config.sectors() or [])
+    watchlist = ", ".join(config.watchlist() or [])
+    lines = [
+        "You are maintaining the lessons for a personal investing briefing. "
+        "There are TWO files: a master log (append-only source of truth containing "
+        "every lesson ever learned) and an active view (~8 lessons the AM Briefing "
+        "reads before predicting). Your job: update the log and refresh the view.",
+        "",
+        "MASTER LOG (current entries, id | outcome_count | last_confirmed | text):",
+    ]
+    if log_entries:
+        for e in log_entries:
+            lines.append(f"  {e.id} | x{e.outcome_count} | {e.last_confirmed} | {e.text}")
+    else:
+        lines.append("  (empty — no lessons yet)")
+    lines += [
+        "",
+        "RECENT MISSES (predictions that just resolved wrong or partial):",
+    ]
+    for p in misses:
+        lines.append(
+            f"  [{p.status}] horizon={p.horizon} | call: {p.call}\n"
+            f"    outcome: {p.outcome} | why: {p.why}"
+        )
+    lines += [
+        "",
+        f"CONTEXT: sectors = {sectors} | watchlist = {watchlist} | today = {today}",
+        "",
+        "YOUR THREE TASKS:",
+        "1. NEW lessons — for each miss, decide if it teaches a genuinely new, "
+        "generalizable rule NOT already covered by the master log. If a very "
+        "similar rule exists, choose CONFIRM instead — never append near-duplicates.",
+        "2. CONFIRM — list IDs of existing log entries that are reinforced by "
+        "today's misses (same failure mode, same theme). This raises their weight.",
+        "3. ACTIVE VIEW — select up to 8 lessons for the active view from the "
+        "UPDATED log (log + any new entries). Weight by: outcome_count (higher = "
+        "battle-tested), recency of last_confirmed, relevance to current sectors/"
+        "watchlist. Reference new lessons as NEW-0, NEW-1, … (their index in 'new').",
+        "",
+        "Return JSON only:",
+        '{"new": [{"text": "one tight generalizable rule"}], '
+        '"confirm": ["L0001"], '
+        '"active_ids": ["L0003", "L0001", "NEW-0"]}',
+        "Rules: 'new' may be empty. IDs in 'confirm' must exist in the log. "
+        "'active_ids' may reference log IDs or NEW-N. Keep 'text' tight — one "
+        "plain bullet the AM run can directly apply to the next prediction.",
+    ]
+    return "\n".join(lines)
 
-    Only misses/partials can teach a lesson, and the file must stay SMALL — so
-    the model is told to merge, dedupe, and cut, not just append. Returns None
-    when there is nothing worth changing (caller then leaves the file untouched).
+
+def update_lessons(
+    misses: list[Prediction],
+    log_entries: list[LessonEntry],
+    today: _dt.date | None = None,
+) -> tuple[list[LessonEntry], str] | None:
+    """Single LLM call: update the master log + render the fresh active view.
+
+    Returns (updated_log_entries, active_markdown) ready to save, or None on
+    any LLM/parse failure (caller leaves both files untouched in that case).
+    Only call this when there are actual misses — the caller gates on that.
     """
-    misses = [p for p in graded if p.status in ("wrong", "partial")]
-    if not misses:
-        log.info("No misses this round; lessons file unchanged.")
-        return None
+    today = today or _dt.date.today()
+    from .ledger import next_lesson_id
 
-    miss_lines = "\n".join(
-        f"- [{p.status}] call: {p.call}\n  outcome: {p.outcome}\n  why: {p.why}"
-        for p in misses
-    )
-    prompt = (
-        "You curate a SMALL, high-signal lessons file for a personal investing "
-        "briefing. It is read into every morning's prediction step, so every line "
-        "must earn its place. Below are predictions that just missed, with why.\n\n"
-        "Update the lessons file: distill any genuinely generalizable rule from "
-        "these misses, MERGE with existing lessons (dedupe, sharpen, and DELETE "
-        "anything stale or redundant). Keep it tight — aim for at most ~8 bullet "
-        "rules total. If the misses teach nothing new and generalizable, return "
-        "the existing file unchanged.\n\n"
-        "Return the COMPLETE updated markdown file content (it will overwrite the "
-        "file verbatim), starting with a '# Lessons' heading.\n\n"
-        f"=== CURRENT LESSONS FILE ===\n{current_lessons}\n\n"
-        f"=== RECENT MISSES ===\n{miss_lines}"
-    )
+    prompt = _update_lessons_prompt(misses, log_entries, today)
     try:
-        new_text = llm.complete(prompt)
+        raw = llm.complete_json(prompt)
     except llm.LLMError as exc:
-        log.warning("Lessons distillation failed (%s); file unchanged.", exc)
+        log.warning("Lessons update LLM call failed (%s); files unchanged.", exc)
         return None
 
-    new_text = new_text.strip()
-    # Tolerate a stray ```markdown fence or a short preamble before the heading:
-    # slice from the first "# Lessons" we find so the file stays clean.
-    if new_text.startswith("```"):
-        new_text = new_text.strip("`")
-        if new_text.lower().startswith("markdown"):
-            new_text = new_text[len("markdown"):]
-        new_text = new_text.strip()
-    idx = new_text.lower().find("# lessons")
-    if idx == -1:
-        log.warning("Distilled lessons missing heading; file unchanged.")
+    if not isinstance(raw, dict):
+        log.warning("Lessons update returned non-dict; files unchanged.")
         return None
-    return new_text[idx:].strip()
+
+    new_texts = [
+        n.get("text", "").strip()
+        for n in raw.get("new", [])
+        if isinstance(n, dict) and n.get("text", "").strip()
+    ]
+    confirm_ids = set(str(c) for c in raw.get("confirm", []) if c)
+    active_refs = [str(r) for r in raw.get("active_ids", []) if r]
+
+    # Work on an in-memory copy — the caller saves if we succeed.
+    updated = list(log_entries)
+    existing_id_map = {e.id: e for e in updated}
+    miss_source_ids = [p.id for p in misses]
+
+    # 1. Confirm existing entries (increment count + update date + add sources).
+    confirmed_count = 0
+    for cid in confirm_ids:
+        entry = existing_id_map.get(cid)
+        if entry is None:
+            log.warning("Lessons confirm references unknown ID %r; skipping.", cid)
+            continue
+        entry.outcome_count += 1
+        entry.last_confirmed = today.isoformat()
+        entry.sources = list(set(entry.sources + miss_source_ids))
+        confirmed_count += 1
+
+    # 2. Append genuinely new entries.
+    new_entries: list[LessonEntry] = []
+    for text in new_texts:
+        e = LessonEntry(
+            id=next_lesson_id(updated + new_entries),
+            text=text,
+            created=today.isoformat(),
+            last_confirmed=today.isoformat(),
+            sources=list(miss_source_ids),
+            outcome_count=1,
+        )
+        new_entries.append(e)
+    updated.extend(new_entries)
+
+    # Map NEW-N references to real IDs now that we've assigned them.
+    new_id_map = {f"NEW-{i}": e.id for i, e in enumerate(new_entries)}
+    all_id_map = {e.id: e for e in updated}
+
+    # 3. Resolve active_refs → entries → render active markdown.
+    active_lines: list[str] = []
+    seen_active: set[str] = set()
+    for ref in active_refs:
+        real_id = new_id_map.get(ref, ref)
+        if real_id in seen_active:
+            continue
+        entry = all_id_map.get(real_id)
+        if entry is None:
+            log.warning("active_ids ref %r (%r) not found; skipping.", ref, real_id)
+            continue
+        active_lines.append(f"- {entry.text}")
+        seen_active.add(real_id)
+
+    if not active_lines:
+        # Fallback: use top entries by outcome_count then recency.
+        fallback = sorted(updated, key=lambda e: (e.outcome_count, e.last_confirmed), reverse=True)[:8]
+        active_lines = [f"- {e.text}" for e in fallback]
+        log.warning("active_ids empty or all invalid; using fallback selection (%d).", len(fallback))
+
+    active_md = "# Active Lessons\n\n" + "\n".join(active_lines) + "\n"
+
+    log.info(
+        "Lessons update: %d new, %d confirmed, %d selected for active view.",
+        len(new_entries), confirmed_count, len(active_lines),
+    )
+    return updated, active_md
 
 
 if __name__ == "__main__":

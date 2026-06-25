@@ -46,8 +46,16 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
 LEDGER_PATH = DATA_DIR / "ledger.json"
 LEDGER_TEMPLATE = DATA_DIR / "ledger.example.json"
-LESSONS_PATH = DATA_DIR / "lessons.md"
-LESSONS_TEMPLATE = DATA_DIR / "lessons.example.md"
+
+# Two-file lessons architecture (Phase 4):
+#   lessons_log.json    — append-only master log; every lesson ever learned; NEVER trimmed.
+#   lessons_active.md   — curated active view (~8 lessons) that the AM Briefing ingests.
+# The old lessons.md is kept for migration only (bootstrapped into lessons_active.md on first use).
+LESSONS_LOG_PATH = DATA_DIR / "lessons_log.json"
+LESSONS_LOG_TEMPLATE = DATA_DIR / "lessons_log.example.json"
+ACTIVE_LESSONS_PATH = DATA_DIR / "lessons_active.md"
+ACTIVE_LESSONS_TEMPLATE = DATA_DIR / "lessons_active.example.md"
+_LEGACY_LESSONS_PATH = DATA_DIR / "lessons.md"  # migration source only
 
 # The locked horizon ladder lives in config.toml; these are the deltas used to
 # turn a horizon into a concrete "due" date. Kept here (not config) because they
@@ -88,6 +96,31 @@ class Prediction:
     def is_due(self, on: _dt.date) -> bool:
         """True if this open prediction can be graded on/after `on`."""
         return self.status == "open" and self.due_date <= on
+
+
+@dataclass
+class LessonEntry:
+    """One entry in the append-only lessons master log.
+
+    The master log (lessons_log.json) is the source of truth — entries are only
+    ADDED or UPDATED (outcome_count / last_confirmed), never deleted. The active
+    view (lessons_active.md) is a curated ~8-lesson subset that the AM run reads.
+
+    Fields:
+        id              unique sequential key, e.g. "L0000"
+        text            the lesson bullet (one tight, generalizable rule)
+        created         ISO date first distilled
+        last_confirmed  ISO date most recently reinforced by an outcome
+        sources         ledger prediction IDs that support this lesson
+        outcome_count   number of distinct graded outcomes supporting it
+    """
+
+    id: str
+    text: str
+    created: str
+    last_confirmed: str
+    sources: list  # list[str] — ledger prediction IDs
+    outcome_count: int
 
 
 # ── Horizon math ──────────────────────────────────────────────────────────────
@@ -202,23 +235,82 @@ def update_predictions(graded: list[Prediction]) -> list[Prediction]:
     return all_preds
 
 
-# ── Lessons I/O ───────────────────────────────────────────────────────────────
+# ── Lessons I/O (two-file architecture) ──────────────────────────────────────
+#
+# Master log  (lessons_log.json)   — append-only; every lesson ever learned.
+# Active view (lessons_active.md)  — curated ~8-lesson subset; what AM ingests.
+#
+# Bootstrap order for lessons_active.md:
+#   1. Use existing lessons_active.md (normal case).
+#   2. Migrate from legacy lessons.md if present (first run after the upgrade).
+#   3. Copy from the blank template.
+#   4. Write an empty placeholder.
 
-def read_lessons() -> str:
-    """Return the lessons file text (bootstrapping it from template if missing).
+def _ensure_active_lessons() -> None:
+    if ACTIVE_LESSONS_PATH.exists():
+        return
+    ACTIVE_LESSONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _LEGACY_LESSONS_PATH.exists():
+        content = _LEGACY_LESSONS_PATH.read_text(encoding="utf-8")
+        ACTIVE_LESSONS_PATH.write_text(content, encoding="utf-8")
+        log.info("Migrated lessons.md -> lessons_active.md")
+    elif ACTIVE_LESSONS_TEMPLATE.exists():
+        shutil.copyfile(ACTIVE_LESSONS_TEMPLATE, ACTIVE_LESSONS_PATH)
+        log.info("Bootstrapped %s from template.", ACTIVE_LESSONS_PATH.name)
+    else:
+        ACTIVE_LESSONS_PATH.write_text("# Active Lessons\n", encoding="utf-8")
+        log.info("Created empty %s.", ACTIVE_LESSONS_PATH.name)
 
-    Fed into the AM run before it predicts, so keep it small — this is read as-is
-    into the prediction prompt.
+
+def read_active_lessons() -> str:
+    """Return the active lessons text (the ~8-lesson curated view).
+
+    This is the only thing the AM run reads before predicting — keep it tight.
     """
-    _ensure_file(LESSONS_PATH, LESSONS_TEMPLATE)
-    return LESSONS_PATH.read_text(encoding="utf-8")
+    _ensure_active_lessons()
+    return ACTIVE_LESSONS_PATH.read_text(encoding="utf-8")
 
 
-def write_lessons(text: str) -> None:
-    """Overwrite the lessons file with curated `text`."""
-    _ensure_file(LESSONS_PATH, LESSONS_TEMPLATE)
-    LESSONS_PATH.write_text(text.rstrip() + "\n", encoding="utf-8")
-    log.info("Lessons file updated (%d chars).", len(text))
+def write_active_lessons(text: str) -> None:
+    """Overwrite the active lessons view with freshly curated `text`."""
+    _ensure_active_lessons()
+    ACTIVE_LESSONS_PATH.write_text(text.rstrip() + "\n", encoding="utf-8")
+    log.info("Active lessons view updated (%d chars).", len(text))
+
+
+def load_lessons_log() -> list[LessonEntry]:
+    """Load all entries from the append-only lessons master log."""
+    _ensure_file(LESSONS_LOG_PATH, LESSONS_LOG_TEMPLATE)
+    raw = json.loads(LESSONS_LOG_PATH.read_text(encoding="utf-8") or "{}")
+    out: list[LessonEntry] = []
+    for d in raw.get("lessons", []):
+        out.append(LessonEntry(
+            id=d.get("id", ""),
+            text=d.get("text", ""),
+            created=d.get("created", ""),
+            last_confirmed=d.get("last_confirmed", ""),
+            sources=d.get("sources") or [],
+            outcome_count=int(d.get("outcome_count") or 0),
+        ))
+    return out
+
+
+def save_lessons_log(entries: list[LessonEntry]) -> None:
+    """Write the full lessons log back (atomic-ish replace).
+
+    This is the ONLY write path for the master log — always pass the complete list.
+    """
+    _ensure_file(LESSONS_LOG_PATH, LESSONS_LOG_TEMPLATE)
+    payload = {"lessons": [asdict(e) for e in entries]}
+    tmp = LESSONS_LOG_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(LESSONS_LOG_PATH)
+    log.info("Lessons log saved: %d entries.", len(entries))
+
+
+def next_lesson_id(existing: list[LessonEntry]) -> str:
+    """A sequential, zero-padded lesson ID: L0000, L0001, …"""
+    return f"L{len(existing):04d}"
 
 
 if __name__ == "__main__":
@@ -227,4 +319,8 @@ if __name__ == "__main__":
     print(f"{len(preds)} predictions in ledger.")
     for p in preds[-5:]:
         print(f"  [{p.status}] {p.horizon:9} due {p.due}  {p.call[:70]}")
-    print(f"\nLessons file: {len(read_lessons())} chars.")
+    log_entries = load_lessons_log()
+    print(f"\nLessons log: {len(log_entries)} entries.")
+    for e in log_entries[-5:]:
+        print(f"  [{e.id}] x{e.outcome_count}  {e.text[:70]}")
+    print(f"\nActive lessons: {len(read_active_lessons())} chars.")

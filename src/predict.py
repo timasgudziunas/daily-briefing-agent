@@ -229,5 +229,5 @@ if __name__ == "__main__":
     from .fetch import fetch_all
 
     b = curate(fetch_all())
-    preds = make_predictions(b, ledger.read_lessons())
+    preds = make_predictions(b, ledger.read_active_lessons())
     print(json.dumps([vars(p) for p in preds], indent=2))

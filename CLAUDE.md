@@ -31,15 +31,18 @@ This is a learning project as much as a tool — favor clear, readable code over
 
 ## Architecture — the daily loop
 
-**AM Briefing run:** read `lessons` → fetch news → curate items + make predictions → append predictions to `ledger` → send email → write to `archive`.
+**AM Briefing run:** read `lessons_active` → fetch news → curate items + make predictions → append predictions to `ledger` → send email → write to `archive`.
 
-**PM Debrief run:** load this morning's predictions (plus any long-horizon ones now due) → fetch market/data outcomes → grade strictly (right/wrong/partial + why) → write verdicts + any new lessons → build market wrap + learning piece → send email → write to `archive`.
+**PM Debrief run:** load this morning's predictions (plus any long-horizon ones now due) → fetch market/data outcomes → grade strictly (right/wrong/partial + why) → **if there were any misses**, run one LLM call to update lessons (distill new rules, confirm existing ones, select active view) → build market wrap + learning piece → send email → write to `archive`.
 
 Persistent state is the system's memory and the reason it improves — treat it as the source of truth:
 
 - `ledger` — every prediction: date, item, the call, horizon, status, outcome, why.
-- `lessons` — distilled, generalizable rules. Keep it curated and SMALL; it is fed into AM runs.
+- `lessons_log` — **append-only master log** of every lesson ever distilled. Each entry: `id`, `text`, `created`, `last_confirmed`, `sources` (ledger IDs), `outcome_count`. Entries are NEVER deleted — only updated (outcome_count / last_confirmed incremented on confirmation). The master log grows over time and is the durable record.
+- `lessons_active` — **curated active view** (~8 lessons selected from the master log by the PM run). This is the only file the AM Briefing ingests. Evicting a lesson from the active view does NOT remove it from the master log.
 - `archive` — full sent emails, dated.
+
+**Lessons gating rule:** The PM run only triggers the lessons LLM call when there are actual misses/partials in that run's graded predictions. If all predictions graded "right" (or none came due), both lessons files are left untouched — no re-running on stable data.
 
 ## Target repo structure
 
@@ -52,20 +55,26 @@ src/
   extract.py        # article key-point extraction
   llm.py            # SINGLE swappable LLM interface
   predict.py        # prediction + horizon logic
-  grade.py          # strict, data-grounded grading
+  grade.py          # strict grading + lessons update (update_lessons)
   market.py         # price/data lookups
   calendar.py       # trading-day / holiday gate
   email.py          # HTML email build + Gmail send
-  ledger.py         # read/write ledger + lessons
+  ledger.py         # read/write ledger + two-file lessons system
+  dedup.py          # rolling seen-story deduplication
 data/
-  ledger.example.json      # committed blank template
-  lessons.example.md       # committed blank template
-  ledger.json              # gitignored: real predictions (private)
-  lessons.md               # gitignored: real lessons (private)
-  archive/.gitkeep         # committed (keeps the folder)
+  ledger.example.json           # committed blank template
+  lessons_log.example.json      # committed blank template (master log)
+  lessons_active.example.md     # committed blank template (active view)
+  ledger.json                   # gitignored: real predictions (private)
+  lessons_log.json              # gitignored: append-only master lessons log (private)
+  lessons_active.md             # gitignored: curated ~8-lesson active view (private)
+  seen.json                     # gitignored: rolling 7-day story dedup cache
+  archive/.gitkeep              # committed (keeps the folder)
   archive/YYYY-MM-DD-am.md (and -pm.md)  # gitignored: full sent emails (private)
 .env                # gitignored: API keys, Gmail app password
 ```
+
+**Note on the old `lessons.md`:** Still gitignored for legacy reasons. On first run after the upgrade, `ledger.py` automatically migrates its content into `lessons_active.md`. The file itself is not deleted but is no longer read or written by any code.
 
 **Privacy (decided in Phase 0):** the ledger, lessons, and archive hold the
 owner's personal track record and full emails — their real files are **gitignored**

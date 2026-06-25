@@ -26,7 +26,7 @@ import datetime as _dt
 import logging
 from dataclasses import dataclass, field
 
-from . import config, extract, llm, market
+from . import config, dedup, extract, llm, market
 from .fetch import Article, Sources
 from .ledger import Prediction
 
@@ -122,6 +122,10 @@ def _learning_select_prompt(candidates: list[Article]) -> str:
     for i, a in enumerate(candidates):
         summary = " ".join(a.summary.split())[:240]
         lines.append(f"[L{i}] ({a.source}) {a.title}\n    {summary}")
+    seen = dedup.seen_context()
+    if seen:
+        lines.append(f"\n{seen}")
+
     lines.append(
         '\nReturn JSON: {"ref": "L3", "topic": "<one or two word tag, e.g. History, '
         'Astronomy, Psychology>", "reason": "<short>"}. Use the [L#] refs exactly.'

@@ -56,10 +56,10 @@ Goal: it runs itself on trading days without you touching it.
 
 Goal: trustworthy day after day.
 
-- [ ] Story de-duplication — don't repeat the same item across sends or days.
-- [ ] Source fallbacks verified (yfinance → Finnhub; a missing feed doesn't break the run).
-- [ ] Lessons-file size cap / periodic curation so it stays small and high-signal.
-- [ ] Owner tasks (not code): set up the two Gmail label filters (AM vs PM); optionally connect the repo to a Claude Project for chatting over past briefings.
+- [x] Story de-duplication — don't repeat the same item across sends or days. _(`src/dedup.py` — rolling `data/seen.json` (gitignored, 7-day window). `seen_context()` is injected into both the AM curation SELECT prompt and the PM learning SELECT prompt so the curator skips already-sent stories. `mark_seen()` is called after each real send (not `--no-send`) in both entry points. Idempotent and fully degradable — a corrupt or missing `seen.json` just means no dedup hint is injected.)_
+- [x] Source fallbacks verified (yfinance → Finnhub; a missing feed doesn't break the run). _(yfinance→Finnhub wiring in `market.py` confirmed solid: `latest_close`/`daily_move` each try yfinance first, fall through to Finnhub on failure. `close_on` (historical) is yfinance-only, which is correct — Finnhub free tier only gives current price. Individual feed failures in `fetch.py` already degrade to `[]` gracefully. Added a `WARNING` log when the total article pool after recency filtering is < 3, so thin-pool situations are visible in the run logs rather than failing silently.)_
+- [x] Lessons-file size cap / periodic curation so it stays small and high-signal. _(Refactored to a **two-file additive architecture** (owner request, 6/25): **`lessons_log.json`** is an append-only master log — every lesson ever distilled, tagged with `id`, `text`, `created`, `last_confirmed`, `sources` (ledger IDs), `outcome_count`. It is NEVER trimmed or destroyed. **`lessons_active.md`** is the curated ~8-lesson view the AM Briefing ingests; evicting from the active view leaves the master log intact. `grade.update_lessons()` makes **one LLM call** when there are misses: distill new rules, confirm existing ones by incrementing `outcome_count`, and select the new active view by weighting recency + count + sector relevance. PM run is **gated on misses** — if there are no wrong/partial predictions in a given run, both files are left untouched (no LLM call). Old `distill_lessons` + `trim_lessons_if_needed` removed. First run auto-migrates the legacy `lessons.md` into `lessons_active.md`.)_
+- [x] Owner tasks (not code): set up the two Gmail label filters (AM vs PM); optionally connect the repo to a Claude Project for chatting over past briefings. _(Done by owner 6/25.)_
 
 ## Phase 5 — Stage two: make it agentic (the learning goal)
 

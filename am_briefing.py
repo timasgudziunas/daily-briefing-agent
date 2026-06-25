@@ -26,6 +26,7 @@ from pathlib import Path
 
 from src import calendar as trading_calendar
 from src import curate as curation
+from src import dedup
 from src import email as mailer
 from src import fetch
 from src import ledger
@@ -88,10 +89,10 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
         log.error("Curation produced no items; not sending an empty briefing.")
         return 1
 
-    # Phase 2: read lessons first, then predict + append to the ledger. The
-    # prediction step is best-effort — a failure here still sends the briefing.
+    # Phase 2: read the curated active lessons view, then predict + append to ledger.
+    # Prediction step is best-effort — a failure here still sends the briefing.
     log.info("Predicting…")
-    lessons = ledger.read_lessons()
+    lessons = ledger.read_active_lessons()
     predict.make_predictions(briefing, lessons_text=lessons, today=today, run="am")
 
     subject, html = mailer.build_html(briefing)
@@ -114,6 +115,12 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     log.info("Sending…")
     mailer.send_email(subject, html, text=mailer.render_digest_text(briefing), to=to)
     print(f"Sent: {subject}")
+
+    # Mark sent stories as seen so future curation passes skip them.
+    dedup.mark_seen(
+        [item.link for item in briefing.items],
+        [item.headline for item in briefing.items],
+    )
 
     try:
         _archive(briefing, subject)

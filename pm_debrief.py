@@ -27,6 +27,7 @@ from pathlib import Path
 
 from src import calendar as trading_calendar
 from src import debrief as debriefing
+from src import dedup
 from src import email as mailer
 from src import fetch
 from src import grade
@@ -84,11 +85,21 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     if graded:
         ledger.update_predictions(graded)
 
-    # 2. Distill any misses into the (small, curated) lessons file.
-    new_lessons = grade.distill_lessons(graded, ledger.read_lessons())
-    if new_lessons:
-        ledger.write_lessons(new_lessons)
-        log.info("Lessons file updated from today's misses.")
+    # 2. Update lessons — gated on new misses so we never LLM-call on stable data.
+    #    update_lessons() does ONE call: distill new rules, confirm existing ones,
+    #    select the active view. Both files (log + active view) are only written when
+    #    the call succeeds; a failure leaves them untouched.
+    misses = [p for p in graded if p.status in ("wrong", "partial")]
+    if misses:
+        log_entries = ledger.load_lessons_log()
+        result = grade.update_lessons(misses, log_entries, today=today)
+        if result is not None:
+            updated_log, active_md = result
+            ledger.save_lessons_log(updated_log)
+            ledger.write_active_lessons(active_md)
+            log.info("Lessons master log + active view updated.")
+    else:
+        log.info("No misses this PM run; lessons files left untouched.")
 
     # 3. Market/econ data for the summary, plus the general-interest feeds that
     #    feed the "Something New" nightly learning piece (fetched separately so the
@@ -136,6 +147,10 @@ def run(no_send: bool = False, force: bool = False, to: str | None = None) -> in
     log.info("Sending…")
     mailer.send_email(subject, html, text=mailer.render_debrief_text(deb), to=to)
     print(f"Sent: {subject}")
+
+    # Mark the learning piece as seen so it's not repeated in a future PM.
+    if deb.learning:
+        dedup.mark_seen([deb.learning.link], [deb.learning.title])
 
     try:
         _archive(deb, subject)

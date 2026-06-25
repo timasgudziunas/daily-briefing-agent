@@ -25,7 +25,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 
-from . import config, extract, llm
+from . import config, dedup, extract, llm
 from .fetch import Article, EconSeries, Sources
 
 log = logging.getLogger(__name__)
@@ -109,6 +109,10 @@ def _select_prompt(articles: list[Article], econ: list[EconSeries]) -> str:
         for i, e in enumerate(econ):
             chg = "" if e.change is None else f", prev {e.prev_value} (Δ {e.change:+.2f})"
             lines.append(f"[E{i}] {e.title}: {e.latest_value} on {e.latest_date}{chg}")
+
+    seen = dedup.seen_context()
+    if seen:
+        lines.append(f"\n{seen}")
 
     lines.append(
         "\nReturn JSON: "

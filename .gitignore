@@ -24,6 +24,9 @@ Thumbs.db
 # start locally (see README).
 data/ledger.json
 data/lessons.md
+data/lessons_log.json
+data/lessons_active.md
+data/seen.json
 data/archive/*
 !data/archive/.gitkeep
 data/logs/

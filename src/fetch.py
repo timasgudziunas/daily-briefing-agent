@@ -182,6 +182,12 @@ def fetch_articles() -> list[Article]:
     fresh = [a for a in articles if (a.age_days is None or a.age_days <= MAX_AGE_DAYS)]
     fresh.sort(key=sort_key, reverse=True)
     log.info("Total candidate articles after recency filter: %d", len(fresh))
+    if len(fresh) < 3:
+        log.warning(
+            "Very thin article pool (%d articles) — check feed URLs in config.toml "
+            "and whether the recency window (MAX_AGE_DAYS=%d) is too tight.",
+            len(fresh), MAX_AGE_DAYS,
+        )
     return fresh
 
 
