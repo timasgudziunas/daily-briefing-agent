@@ -1,16 +1,20 @@
-"""Curation: turn raw sources into a lean, well-formed AM Briefing (Phase 1).
+"""Curation: turn raw sources into a lean, well-formed AM Briefing (Phase 1/5).
 
 Two LLM passes through the swappable `llm` interface:
 
   1. SELECT — from the candidate pool (wire + tech articles, FRED series), pick
      ~3 finalists across the three pillars (Politics / Technology / Economy),
      enforcing the leanness, no-filler, no-AI-slop and recency-first rules.
+     Phase 5: the model has WebSearch/WebFetch tools and may verify freshness or
+     check for superseding coverage before committing to a selection.
   2. COMPOSE — extract the real article body for each finalist (extract.py) and
      write its 2-3 key points + one-line "why it matters", plus a TL;DR for the
      whole email.
+     Phase 5: the model has web tools to pull threads — fetch the article if
+     extraction is thin, verify claims, look up referenced data — so key points
+     are grounded in confirmed facts, not just feed summaries.
 
-Phase 1 stops at "why it matters" — predictions are added in Phase 2. Only key
-points + the source link are kept; full article text is never persisted.
+Only key points + the source link are kept; full article text is never persisted.
 
 Note: `curate.py` is a small structural addition beyond CLAUDE.md's listed
 module set — it holds the "Curation prompt" Phase 1 step and keeps the
@@ -32,6 +36,12 @@ log = logging.getLogger(__name__)
 
 PILLARS = ["Politics", "Technology", "Economy"]
 TARGET_ITEMS = 3  # ~3 in the AM (CLAUDE.md leanness rule)
+
+# Phase 5: agentic curation — web tools let the model verify freshness and pull
+# threads rather than summarizing only what feeds hand it.
+_CURATE_TOOLS = ["WebSearch", "WebFetch"]
+_SELECT_TIMEOUT = 300   # 5 min: targeted freshness/verification searches
+_COMPOSE_TIMEOUT = 360  # 6 min: thread-pulling across all finalists
 
 
 @dataclass
@@ -115,6 +125,14 @@ def _select_prompt(articles: list[Article], econ: list[EconSeries]) -> str:
         lines.append(f"\n{seen}")
 
     lines.append(
+        "\nRESEARCH (optional): You have WebSearch and WebFetch tools. Use them "
+        "when a candidate is worth verifying before you commit: check whether a "
+        "story has been superseded by fresher reporting, confirm a claim before "
+        "elevating it to finalist, or surface a more recent angle the RSS summary "
+        "missed. Do NOT fetch every candidate — search only when it would change "
+        "your selection."
+    )
+    lines.append(
         "\nReturn JSON: "
         '{"selected": [{"ref": "A3", "pillar": "Technology", "reason": "<short>"}]}. '
         'Use the [A#]/[E#] refs exactly. "pillar" must be one of '
@@ -142,12 +160,40 @@ def _compose_prompt(selected: list[dict]) -> str:
             f"{s['context']}"
         )
     blocks.append(
+        "\nRESEARCH: You have WebSearch and WebFetch tools. Pull threads before "
+        "writing key points: fetch the article if the provided context is thin or "
+        "truncated, verify specific claims or statistics, look up a referenced "
+        "dataset or report. Every key point should be grounded in something you "
+        "actually confirmed — a fact you had to look up beats three that paraphrase "
+        "a headline. Chase only what makes the item sharper; don't fetch everything."
+    )
+    blocks.append(
         "\nReturn JSON: "
         '{"tldr": ["<line per item>"], '
         '"items": [{"ref": "A3", "key_points": ["...", "..."], '
         '"why_it_matters": "..."}]}'
     )
     return "\n".join(blocks)
+
+
+# ── Agentic LLM runners (Phase 5) ────────────────────────────────────────────
+# Each pass tries with web tools first; if that call fails, falls back to a
+# plain (tool-free) completion so curation is never blocked by a tool error.
+
+def _run_select(prompt: str):
+    try:
+        return llm.complete_json(prompt, allowed_tools=_CURATE_TOOLS, timeout=_SELECT_TIMEOUT)
+    except llm.LLMError as exc:
+        log.warning("Research-backed SELECT failed (%s); retrying without tools.", exc)
+        return llm.complete_json(prompt)
+
+
+def _run_compose(prompt: str):
+    try:
+        return llm.complete_json(prompt, allowed_tools=_CURATE_TOOLS, timeout=_COMPOSE_TIMEOUT)
+    except llm.LLMError as exc:
+        log.warning("Research-backed COMPOSE failed (%s); retrying without tools.", exc)
+        return llm.complete_json(prompt)
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
@@ -172,8 +218,8 @@ def curate(sources: Sources, today: _dt.date | None = None) -> Briefing:
 
     refs = _index_candidates(sources.articles, sources.econ)
 
-    # Pass 1 — selection.
-    selection = llm.complete_json(_select_prompt(sources.articles, sources.econ))
+    # Pass 1 — selection (research-backed: model may verify freshness via web tools).
+    selection = _run_select(_select_prompt(sources.articles, sources.econ))
     chosen = selection.get("selected", []) if isinstance(selection, dict) else []
     if not chosen:
         raise RuntimeError("Curator selected no items.")
@@ -219,8 +265,8 @@ def curate(sources: Sources, today: _dt.date | None = None) -> Briefing:
     if not selected:
         raise RuntimeError("No valid finalists after resolving curator refs.")
 
-    # Pass 2 — composition.
-    composed = llm.complete_json(_compose_prompt(selected))
+    # Pass 2 — composition (research-backed: model may pull threads via web tools).
+    composed = _run_compose(_compose_prompt(selected))
     by_ref = {c.get("ref"): c for c in composed.get("items", [])}
 
     items: list[Item] = []

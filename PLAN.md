@@ -65,9 +65,9 @@ Goal: trustworthy day after day.
 
 Goal: turn the single LLM call into an agent that finds what matters.
 
-- [~] Give the LLM real tools through the swappable interface — web search first. _(Partially done early: the **AM prediction step** already researches via WebSearch/WebFetch through `llm.complete(..., allowed_tools=...)`. Remaining Phase 5 work: extend agentic tool use to curation/grading and let it iterate/chase threads, not just predict.)_
-- [ ] Let it decide what to chase and iterate (pull threads, verify, dig) rather than only summarizing what it's handed.
-- [ ] Keep everything above intact — this is an upgrade to the curation/prediction brain, not a rewrite.
+- [x] Give the LLM real tools through the swappable interface — web search first. _(AM prediction step (Phase 2) already used WebSearch/WebFetch. Phase 5 extends this to **all** remaining LLM passes: curation SELECT (verify freshness, check for superseding coverage), curation COMPOSE (thread-pull on each finalist — fetch thin articles, verify claims, look up referenced data), grading (web lookup for qualitative predictions with no ticker/metric anchor), and PM learning COMPOSE (pull supporting context to deepen the piece). All through the same `llm.complete(..., allowed_tools=...)` interface. Every pass has a tool-enabled call first + plain fallback so curation never blocks on a tool error.)_
+- [x] Let it decide what to chase and iterate (pull threads, verify, dig) rather than only summarizing what it's handed. _(Prompts now explicitly invite purposeful iteration: "search only when it changes your selection" in SELECT; "a fact you had to look up beats three that paraphrase a headline" in COMPOSE; "without clear confirming evidence the call is wrong" in grading. The model decides what to chase — the prompt gives permission + purpose, not prescribed steps.)_
+- [x] Keep everything above intact — this is an upgrade to the curation/prediction brain, not a rewrite. _(No schema changes, no entry-point changes, no new modules. All changes are in `curate.py`, `grade.py`, `debrief.py` — existing logic untouched, tool use layered on top with graceful fallback.)
 
 ---
 

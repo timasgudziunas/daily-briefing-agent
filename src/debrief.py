@@ -35,6 +35,11 @@ log = logging.getLogger(__name__)
 # Cap the learning candidate pool handed to the selector (token budget).
 _MAX_LEARNING_CANDIDATES = 25
 
+# Phase 5: web tools for the learning compose step — lets the model pull extra
+# context (the discoverer's story, scale of the phenomenon, a related surprise).
+_LEARNING_TOOLS = ["WebSearch", "WebFetch"]
+_LEARNING_COMPOSE_TIMEOUT = 300  # 5 min: one story, targeted lookups
+
 
 @dataclass
 class LearningPiece:
@@ -148,6 +153,12 @@ def _learning_compose_prompt(headline: str, source: str, topic: str, context: st
         "Do NOT reproduce article text — distill. No markets/investing spin; just the "
         "wonder of the thing.",
         "",
+        "RESEARCH: You have WebSearch and WebFetch tools. If the provided content is "
+        "thin, fetch the article directly. Look up one or two supporting facts that "
+        "make the story land harder — a detail about the discoverer, the scale of the "
+        "phenomenon, a related surprising data point. Ground every key point in "
+        "something you've actually verified.",
+        "",
         f"HEADLINE: {headline} ({source})",
         f"CONTENT:\n{context}",
         "",
@@ -183,9 +194,18 @@ def compose_learning(candidates: list[Article]) -> LearningPiece | None:
     link = extract.resolve_link(article.link)
     content = extract.best_context(link, article.summary)
 
-    composed = llm.complete_json(
-        _learning_compose_prompt(article.title, article.source, topic or "fascinating", content)
-    )
+    # Research-backed compose — model may pull threads to deepen the piece.
+    try:
+        composed = llm.complete_json(
+            _learning_compose_prompt(article.title, article.source, topic or "fascinating", content),
+            allowed_tools=_LEARNING_TOOLS,
+            timeout=_LEARNING_COMPOSE_TIMEOUT,
+        )
+    except llm.LLMError as exc:
+        log.warning("Research-backed learning compose failed (%s); retrying without tools.", exc)
+        composed = llm.complete_json(
+            _learning_compose_prompt(article.title, article.source, topic or "fascinating", content)
+        )
     context = (composed.get("context") or "").strip() if isinstance(composed, dict) else ""
     key_points = (
         [p.strip() for p in composed.get("key_points", []) if p.strip()]

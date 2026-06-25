@@ -1,4 +1,4 @@
-"""Strict, data-grounded grading + lessons distillation (Phase 2).
+"""Strict, data-grounded grading + lessons distillation (Phase 2/5).
 
 The PM run loads this morning's predictions plus any longer-horizon ones now due
 (ledger.due_predictions), gathers the real outcome data for each (market.py for
@@ -7,8 +7,13 @@ with a one-line *why* anchored to that data — never the model's own vibes. A
 model grading its own homework must not be lenient: when the data doesn't clearly
 confirm the call, it is not "right".
 
-When grading surfaces misses, `distill_lessons` proposes concise, generalizable
-rules and merges them into the (small, curated) lessons file the AM run reads.
+Phase 5: when a batch contains qualitative predictions (no ticker/metric anchor),
+the grading call gets WebSearch/WebFetch tools so the model can look up what
+actually happened around the due date rather than grading blind. Strict standard
+still applies — if it can't find clear evidence, the call is wrong.
+
+When grading surfaces misses, `update_lessons` proposes concise, generalizable
+rules and merges them into the two-file lessons system the AM run reads.
 """
 
 from __future__ import annotations
@@ -22,6 +27,10 @@ from .ledger import LessonEntry, Prediction
 log = logging.getLogger(__name__)
 
 VALID_STATUS = {"right", "wrong", "partial"}
+
+# Phase 5: web tools for qualitative grading (predictions with no market/FRED anchor).
+_GRADE_TOOLS = ["WebSearch", "WebFetch"]
+_GRADE_TIMEOUT = 360  # 6 min: may need a few targeted news lookups
 
 
 # ── Outcome gathering ─────────────────────────────────────────────────────────
@@ -59,6 +68,11 @@ def _grade_prompt(rows: list[dict]) -> str:
         "borne out.",
         "- 'wrong': the data contradicts the call, OR the call was too vague to "
         "verify (vagueness is a miss, not a pass).",
+        "",
+        "QUALITATIVE CALLS: when 'observed data' says '(no anchorable market/FRED "
+        "data)', you have WebSearch and WebFetch tools. Search for news from around "
+        "the prediction's due date to find the real outcome. Be strict: without "
+        "clear confirming evidence, the call is wrong — not partial, not unknown.",
         "",
         "PREDICTIONS TO GRADE:",
     ]
@@ -101,11 +115,28 @@ def grade_due(
             }
         )
 
+    # Use web tools when at least one prediction has no market/FRED anchor so the
+    # model can look up qualitative outcomes. Falls back to a plain call if the
+    # tool-enabled attempt fails — predictions are left open rather than fabricated.
+    has_qualitative = any(not p.ticker and not p.metric for p in due)
     try:
-        raw = llm.complete_json(_grade_prompt(rows))
+        if has_qualitative:
+            raw = llm.complete_json(
+                _grade_prompt(rows), allowed_tools=_GRADE_TOOLS, timeout=_GRADE_TIMEOUT
+            )
+        else:
+            raw = llm.complete_json(_grade_prompt(rows))
     except llm.LLMError as exc:
-        log.warning("Grading failed (%s); predictions left open.", exc)
-        return []
+        if has_qualitative:
+            log.warning("Research-backed grading failed (%s); retrying without tools.", exc)
+            try:
+                raw = llm.complete_json(_grade_prompt(rows))
+            except llm.LLMError as exc2:
+                log.warning("Grading failed (%s); predictions left open.", exc2)
+                return []
+        else:
+            log.warning("Grading failed (%s); predictions left open.", exc)
+            return []
 
     grades = {g.get("id"): g for g in raw.get("grades", [])} if isinstance(raw, dict) else {}
     graded: list[Prediction] = []
